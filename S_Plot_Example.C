@@ -227,7 +227,7 @@ void DoSPlot(RooWorkspace *ws)
 void MakePlots(RooWorkspace *ws)
 {
 
-   // Here we make plots of the discriminating variable (invMass) after the fit.dot
+   // Here we make plots of the discriminating variable (invMass) after the fit
    // and of the control variable (isolation) after unfolding with sPlot.
    std::cout << "make plots" << std::endl;
 
@@ -270,7 +270,7 @@ void MakePlots(RooWorkspace *ws)
    frame->Draw();
    leg.DrawClone();
 
-   // Now use the sWeights to show isolation dist.dotribution for Z and QCD.
+   // Now use the sWeights to show isolation distribution for Z and QCD.
    // The SPlot class can make this easier, but here we demonstrate in more
    // detail how the sWeights are used.  The SPlot class should make this
    // very easy and needs some more development.
