@@ -4,13 +4,18 @@
 #include "RooRealVar.h"
 #include "RooGaussian.h"
 #include "RooExponential.h"
+#include "RooPolynomial.h"
 #include "RooChebychev.h"
 #include "RooAddPdf.h"
 #include "RooProdPdf.h"
 #include "RooAddition.h"
+#include "RooDataHist.h"
 #include "RooProduct.h"
 #include "TCanvas.h"
 #include "TLegend.h"
+#include "TFile.h"
+#include "TTree.h"
+#include "TH1.h"
 #include "RooAbsPdf.h"
 #include "RooFit.h"
 #include "RooFitResult.h"
@@ -65,34 +70,38 @@ void AddModel(RooWorkspace *ws)
    // of signal and background -- this is only an example.
 
    // set range of observable
-   Double_t lowRange = 0., highRange = 200.;
+   Double_t lowRange = 0.37, highRange = 0.65;
 
    // make a RooRealVar for the observables
-   RooRealVar invMass("invMass", "M_{inv}", lowRange, highRange, "GeV"); // Kaon mass
-   RooRealVar isolation("isolation", "isolation", 0., 20., "GeV");
+   RooRealVar *mass_kp=new RooRealVar("mass_kp", "M_{kaon}", lowRange, highRange); // Kaon mass
+   RooRealVar *missing_mass=new RooRealVar("missing_mass", "missing_mass", 0., 5.); // Missing mass
 
    // --------------------------------------
    // make 2-d model for Z including the invariant mass
-   // distribution  and an isolation distribution which we want to
+   // distribution  and an missing_mass distribution which we want to
    // unfold from QCD.
    std::cout << "make z model" << std::endl;
    // mass model for Z
-   RooRealVar mZ("mZ", "Z Mass", 91.2, lowRange, highRange);
-   RooRealVar sigmaZ("sigmaZ", "Width of Gaussian", 2, 0, 10, "GeV");
-   RooGaussian mZModel("mZModel", "Z+jets Model", invMass, mZ, sigmaZ); // Model for kaon mass signal
+   RooRealVar mkaon("mkaon", "kaon Mass", 0.493677, 0.48, 0.51);
+   RooRealVar sigmakaon("sigmakaon", "Width of Gaussian", 0.001, 0, 0.1, "GeV");
+   RooGaussian mkaonModel("mkaonModel", "kaon mass signal Model", *mass_kp, mkaon, sigmakaon); // Model for kaon mass signal
    // we know Z mass
-   mZ.setConstant();
+   mkaon.setConstant();
    // we leave the width of the Z free during the fit in this example.
 
-   // isolation model for Z.  Only used to generate toy MC.
+   // missing_mass model for Z.  Only used to generate toy MC.
    // the exponential is of the form exp(c*x).  If we want
-   // the isolation to decay an e-fold every R GeV, we use
+   // the missing_mass to decay an e-fold every R GeV, we use
    // c = -1/R.
-   RooConstVar zIsolDecayConst("zIsolDecayConst", "z isolation decay  constant", -1);
-   RooExponential zIsolationModel("zIsolationModel", "z isolation model", isolation, zIsolDecayConst); // signal for isolation
+   RooRealVar mlambda("mlambda", "lambda Mass", 1.116, 1.0, 1.3);
+   RooRealVar sigmalambda("sigmalambda", "width of Gaussian", 0.01, 0, 0.2);
+   RooGaussian missing_massModel("missing_massModel", "Missing Mass Signal Model", *missing_mass, mlambda, sigmalambda); // Model for kaon mass signal
+   mlambda.setConstant();
+
+
 
    // make the combined Z model
-   RooProdPdf zModel("zModel", "2-d model for Z", RooArgSet(mZModel, zIsolationModel)); // Signal 1 v 2
+   RooProdPdf signal_Model("signal_Model", "2-d model for Z", RooArgSet(mkaonModel, missing_massModel)); // Signal 1 v 2
 
    // --------------------------------------
    // make QCD model
@@ -103,30 +112,36 @@ void AddModel(RooWorkspace *ws)
    // the mass to decay an e-fold every R GeV, we use
    // c = -1/R.
    // We can leave this parameter free during the fit.
-   RooRealVar qcdMassDecayConst("qcdMassDecayConst", "Decay const for QCD mass spectrum", -0.1, -100, 100, "1/GeV");
-   RooExponential qcdMassModel("qcdMassModel", "qcd Mass Model", invMass, qcdMassDecayConst); // background for kaon mass
+   RooRealVar mkaonbackPar1("mkaonbackPar1", "Polynomial 1st parameter", 130000);
+   RooRealVar mkaonbackPar2("mkaonbackPar2", "Polynomial 2nd parameter", -1000000);
+   RooRealVar mkaonbackPar3("mkaonbackPar3", "Polynomial 3rd parameter", 3500000);
+   RooRealVar mkaonbackPar4("mkaonbackPar4", "Polynomial 4th parameter", -4750000);
+   RooRealVar mkaonbackPar5("mkaonbackPar5", "Polynomial 5th parameter", 2400000);
+   RooPolynomial mkaonbackModel("mkaonbackModel", "Missing Mass model", mkaon, RooArgList(mkaonbackPar1, mkaonbackPar2, mkaonbackPar3, mkaonbackPar4, mkaonbackPar5),4); // signal for missing_mass
 
-   // isolation model for QCD.  Only used to generate toy MC
-   // the exponential is of the form exp(c*x).  If we wantinvMass
-   // the isolation to decay an e-fold every R GeV, we use
+   // missing_mass model for QCD.  Only used to generate toy MC
+   // the exponential is of the form exp(c*x).  If we wantmass_kp
+   // the missing_mass to decay an e-fold every R GeV, we use
    // c = -1/R.
-   RooConstVar qcdIsolDecayConst("qcdIsolDecayConst", "Et resolution constant", -.1);
-   RooExponential qcdIsolationModel("qcdIsolationModel", "QCD isolation model", isolation, qcdIsolDecayConst); // backgroud for isolation
+   RooRealVar missing_massbackPar1("missing_massbackPar1", "Polynomial 1st parameter", 1700);
+   RooRealVar missing_massbackPar2("missing_massbackPar2", "Polynomial 2nd parameter", -4000);
+   RooRealVar missing_massbackPar3("missing_massbackPar3", "Polynomial 3rd parameter", 2900);
+   RooPolynomial missing_massbackModel("missing_massbackModel", "missing mass back model", *missing_mass, RooArgList(missing_massbackPar1, missing_massbackPar2, missing_massbackPar3),2); // backgroud for missing_mass
 
    // make the 2-d model
-   RooProdPdf qcdModel("qcdModel", "2-d model for QCD", RooArgSet(qcdMassModel, qcdIsolationModel));  // Backgrond 1 v 2
+   RooProdPdf background_Model("background_Model", "2-d model for QCD", RooArgSet(mkaonbackModel, missing_massbackModel));  // Backgrond 1 v 2
 
    // --------------------------------------
    // combined model
 
    // These variables represent the number of Z or QCD events
    // They will be fitted.
-   RooRealVar zYield("zYield", "fitted yield for Z", 50, 0., 1000);
-   RooRealVar qcdYield("qcdYield", "fitted yield for QCD", 100, 0., 1000);
+   RooRealVar zYield("zYield", "fitted yield for Z", 500000, 0., 1500000);
+   RooRealVar qcdYield("qcdYield", "fitted yield for QCD", 300000, 0., 1500000);
 
    // now make the combined model
    std::cout << "make full model" << std::endl;
-   RooAddPdf model("model", "z+qcd background models", RooArgList(zModel, qcdModel), RooArgList(zYield, qcdYield));
+   RooAddPdf model("model", "z+qcd background models", RooArgList(signal_Model, background_Model), RooArgList(zYield, qcdYield));
 
    // interesting for debugging and visualizing the model
    model.graphVizTree("fullModel.dot");
@@ -139,22 +154,33 @@ void AddModel(RooWorkspace *ws)
 //____________________________________
 void AddData(RooWorkspace *ws)
 {
-   // Add a toy dataset
 
+  // Grab data file
+  TFile *f1 = new TFile("/media/mn688/Elements1/PhD/Trees/Dibaryon/RGA/Strangeness_1/RGA_Fall2018_Inbending_skim4_Exclusive_Tree_Out_271021_01.root");
+  TTree *t2 = (TTree*)f1->Get("t2");
+
+  // Add a toy dataset
    // how many events do we want?
-   Int_t nEvents = 1000;
+   // Int_t nEvents = 1000;
 
    // get what we need out of the workspace to make toy data
    RooAbsPdf *model = ws->pdf("model");
-   RooRealVar *invMass = ws->var("invMass");
-   RooRealVar *isolation = ws->var("isolation");
-
+   RooRealVar *mass_kp = ws->var("mass_kp");
+   RooRealVar *missing_mass = ws->var("missing_mass");
+   // RooArgSet observables = new RooArgSet(mass_kp, missing_mass);
+   // observables->Add(ws->var("mass_kp"));
+   // observables->Add(ws->var("missing_mass"));
+   // ws->defineSet("observables", *observables);
+   // RooRealVar* x = new RooRealVar("x","x",0.2,0.8);
    // make the toy data
    std::cout << "make data set and import to workspace" << std::endl;
-   RooDataSet *data = model->generate(RooArgSet(*invMass, *isolation), nEvents);
+   // t2->SetBranchAddress("mass_kp",&mass_kp);
+   // t2->SetBranchAddress("missing_mass",&missing_mass);
+   RooDataSet data("data","data",RooArgSet(*mass_kp,*missing_mass),Import(*t2));
+   // RooDataSet *data = model->generate(RooArgSet(*mass_kp, *missing_mass), nEvents);
 
    // import data into workspace
-   ws->import(*data, Rename("data"));
+   ws->import(data, Rename("data"));
 }
 
 //____________________________________
@@ -192,7 +218,7 @@ void DoSPlot(RooWorkspace *ws)
 
    // Now we use the SPlot class to add SWeights to our data set
    // based on our model and our yield variables
-   RooStats::SPlot *sData = new RooStats::SPlot("sData", "An SPlot", *data, model, RooArgList(*zYield, *qcdYield));
+   RooStats::SPlot sData("sData", "An SPlot", *data, model, RooArgList(*zYield, *qcdYield));
 
    std::cout << "\n\nThe dataset after creating sWeights:\n";
    data->Print();
@@ -203,15 +229,15 @@ void DoSPlot(RooWorkspace *ws)
 
    std::cout << std::endl
              << "Yield of Z is\t" << zYield->getVal() << ".  From sWeights it is "
-             << sData->GetYieldFromSWeight("zYield") << std::endl;
+             << sData.GetYieldFromSWeight("zYield") << std::endl;
 
    std::cout << "Yield of QCD is\t" << qcdYield->getVal() << ".  From sWeights it is "
-             << sData->GetYieldFromSWeight("qcdYield") << std::endl
+             << sData.GetYieldFromSWeight("qcdYield") << std::endl
              << std::endl;
 
    for (Int_t i = 0; i < 10; i++) {
-      std::cout << "z Weight for event " << i << std::right << std::setw(12) << sData->GetSWeight(i, "zYield") << "  qcd Weight"
-                << std::setw(12) << sData->GetSWeight(i, "qcdYield") << "  Total Weight" << std::setw(12) << sData->GetSumOfEventSWeight(i)
+      std::cout << "z Weight for event " << i << std::right << std::setw(12) << sData.GetSWeight(i, "zYield") << "  qcd Weight"
+                << std::setw(12) << sData.GetSWeight(i, "qcdYield") << "  Total Weight" << std::setw(12) << sData.GetSumOfEventSWeight(i)
                 << std::endl;
    }
 
@@ -227,8 +253,8 @@ void DoSPlot(RooWorkspace *ws)
 void MakePlots(RooWorkspace *ws)
 {
 
-   // Here we make plots of the discriminating variable (invMass) after the fit
-   // and of the control variable (isolation) after unfolding with sPlot.
+   // Here we make plots of the discriminating variable (mass_kp) after the fit
+   // and of the control variable (missing_mass) after unfolding with sPlot.
    std::cout << "make plots" << std::endl;
 
    // make our canvas
@@ -237,11 +263,11 @@ void MakePlots(RooWorkspace *ws)
 
    // get what we need out of the workspace
    RooAbsPdf *model = ws->pdf("model");
-   RooAbsPdf *zModel = ws->pdf("zModel");
-   RooAbsPdf *qcdModel = ws->pdf("qcdModel");
+   RooAbsPdf *signal_Model = ws->pdf("signal_Model");
+   RooAbsPdf *background_Model = ws->pdf("background_Model");
 
-   RooRealVar *isolation = ws->var("isolation");
-   RooRealVar *invMass = ws->var("invMass");
+   RooRealVar *missing_mass = ws->var("missing_mass");
+   RooRealVar *mass_kp = ws->var("mass_kp");
 
    // note, we get the dataset with sWeights
    RooDataSet *data = (RooDataSet *)ws->data("dataWithSWeights");
@@ -250,19 +276,19 @@ void MakePlots(RooWorkspace *ws)
    // do this to set parameters back to their fitted values.
 //   model->fitTo(*data, Extended());
 
-   // plot invMass for data with full model and individual components overlaid
+   // plot mass_kp for data with full model and individual components overlaid
    //  TCanvas* cdata = new TCanvas();
    cdata->cd(1);
-   RooPlot *frame = invMass->frame();
+   RooPlot *frame = mass_kp->frame();
    data->plotOn(frame);
    model->plotOn(frame, Name("FullModel"));
-   model->plotOn(frame, Components(*zModel), LineStyle(kDashed), LineColor(kRed), Name("ZModel"));
-   model->plotOn(frame, Components(*qcdModel), LineStyle(kDashed), LineColor(kGreen), Name("QCDModel"));
+   model->plotOn(frame, Components(*signal_Model), LineStyle(kDashed), LineColor(kRed), Name("Signal_Model"));
+   model->plotOn(frame, Components(*background_Model), LineStyle(kDashed), LineColor(kGreen), Name("Background_Model"));
 
    TLegend leg(0.11, 0.5, 0.5, 0.8);
    leg.AddEntry(frame->findObject("FullModel"), "Full model", "L");
-   leg.AddEntry(frame->findObject("ZModel"), "Z model", "L");
-   leg.AddEntry(frame->findObject("QCDModel"), "QCD model", "L");
+   leg.AddEntry(frame->findObject("Signal_Model"), "Z model", "L");
+   leg.AddEntry(frame->findObject("Background_Model"), "QCD model", "L");
    leg.SetBorderSize(0);
    leg.SetFillStyle(0);
 
@@ -270,12 +296,12 @@ void MakePlots(RooWorkspace *ws)
    frame->Draw();
    leg.DrawClone();
 
-   // Now use the sWeights to show isolation distribution for Z and QCD.
+   // Now use the sWeights to show missing_mass distribution for Z and QCD.
    // The SPlot class can make this easier, but here we demonstrate in more
    // detail how the sWeights are used.  The SPlot class should make this
    // very easy and needs some more development.
 
-   // Plot isolation for Z component.
+   // Plot missing_mass for Z component.
    // Do this by plotting all events weighted by the sWeight for the Z component.
    // The SPlot class adds a new variable that has the name of the corresponding
    // yield + "_sw".
@@ -284,23 +310,23 @@ void MakePlots(RooWorkspace *ws)
    // create weighted data set
    RooDataSet *dataw_z = new RooDataSet(data->GetName(), data->GetTitle(), data, *data->get(), 0, "zYield_sw");
 
-   RooPlot *frame2 = isolation->frame();
+   RooPlot *frame2 = missing_mass->frame();
    // Since the data are weighted, we use SumW2 to compute the errors.
    dataw_z->plotOn(frame2, DataError(RooAbsData::SumW2));
 
-   frame2->SetTitle("Isolation distribution with s weights to project out Z");
+   frame2->SetTitle("missing_mass distribution with s weights to project out Z");
    frame2->Draw();
 
-   // Plot isolation for QCD component.
+   // Plot missing_mass for QCD component.
    // Eg. plot all events weighted by the sWeight for the QCD component.
    // The SPlot class adds a new variable that has the name of the corresponding
    // yield + "_sw".
    cdata->cd(3);
    RooDataSet *dataw_qcd = new RooDataSet(data->GetName(), data->GetTitle(), data, *data->get(), 0, "qcdYield_sw");
-   RooPlot *frame3 = isolation->frame();
+   RooPlot *frame3 = missing_mass->frame();
    dataw_qcd->plotOn(frame3, DataError(RooAbsData::SumW2));
 
-   frame3->SetTitle("Isolation distribution with s weights to project out QCD");
+   frame3->SetTitle("missing_mass distribution with s weights to project out QCD");
    frame3->Draw();
 
    //  cdata->SaveAs("SPlot.gif");
